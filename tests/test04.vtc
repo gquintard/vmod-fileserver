@@ -1,0 +1,54 @@
+varnishtest "if-modified-since/if-none-match"
+
+feature cmd "command -v curl"
+
+shell {
+	echo -n "foo" > ${tmpdir}/foo
+}
+
+varnish v1 -vcl {
+	import fileserver from "${vmod}";
+
+	backend default none;
+
+	sub vcl_init {
+		new www = fileserver.root("${tmpdir}");
+	}
+
+	sub vcl_recv {
+		set req.backend_hint = www.backend();
+		return (pass);
+	}
+} -start
+varnish v1 -cliok "param.set debug +syncvsl"
+
+process p1 {
+	set -ex
+	echo fooooooooooooo--------------------------------------------------------
+	LM=$(curl -o /dev/null -sqw '%header{last-modified}' http://${v1_addr}:${v1_port}/foo)
+	echo $LM
+	test -n "$LM"
+	ETAG=$(curl -o /dev/null -sqw '%header{etag}' http://${v1_addr}:${v1_port}/foo)
+	test -n "$ETAG"
+
+	tc() {
+		EXPECTED=$1
+		shift
+		RES=$(curl -o /dev/null -sqw '%{http_code}' http://${v1_addr}:${v1_port}/foo "$@")
+		if [ "$RES" != "$EXPECTED" ]; then
+			echo "expected $EXPECTED, got $RES for arguments: $@"
+			return 1
+		fi
+	}
+
+	#tc 200
+	tc 200 -H "if-none-match: wrong_etag"
+	tc 200 -H "if-none-match: wrong_etag" -H "if-modified-since: Wed, 01 Jan 2020 00:00:00 GMT"
+	tc 200 -H "if-none-match: wrong_etag" -H "if-modified-since: Tue, 01 Jan 2030 00:00:00 GMT"
+	tc 200 -H "if-modified-since: Wed, 01 Jan 2020 00:00:00 GMT"
+
+	tc 304 -H "if-none-match: $ETAG"
+	tc 304 -H "if-none-match: $ETAG" -H "if-modified-since: Tue, 01 Jan 2030 00:00:00 GMT"
+	tc 304 -H "if-none-match: $ETAG" -H "if-modified-since: Tue, 01 Jan 2030 00:00:00 GMT"
+	tc 304 -H "if-modified-since: Tue, 01 Jan 2030 00:00:00 GMT"
+} -run

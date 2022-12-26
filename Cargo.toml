@@ -1,0 +1,19 @@
+[package]
+name = "vmod_fileserver"
+version = "0.0.5"
+edition = "2021"
+license = "BSD-3-Clause"
+
+[build-dependencies]
+varnish = "0.0.12" 
+varnish-sys = "0.0.12"
+
+[dependencies]
+varnish = "0.0.12"
+varnish-sys = "0.0.12"
+anyhow = "1.0"
+serde_json = "1"
+chrono = "0.4.23"
+
+[lib]
+crate-type = ["cdylib"]

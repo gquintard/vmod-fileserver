@@ -1,0 +1,39 @@
+varnishtest "basic file access"
+
+shell {
+	echo -n "foo" > ${tmpdir}/foo
+	mkdir -p ${tmpdir}/bar/baz
+	echo -n "qux" > ${tmpdir}/bar/baz/qux
+}
+
+varnish v1 -vcl {
+	import fileserver from "${vmod}";
+
+	backend default none;
+
+	sub vcl_init {
+		new www = fileserver.root("${tmpdir}");
+	}
+
+	sub vcl_recv {
+		set req.backend_hint = www.backend();
+	}
+} -start
+
+client c1 {
+	txreq -url "/foo"
+	rxresp
+	expect resp.body == "foo"
+
+	txreq -url "/bar/baz/qux"
+	rxresp
+	expect resp.body == "qux"
+
+	txreq -url "/bar/../../something/../../../foo"
+	rxresp
+	expect resp.body == "foo"
+
+	txreq -url "/bar/x/y/z/../../a/b/../../../baz/../baz/qux"
+	rxresp
+	expect resp.body == "qux"
+} -run

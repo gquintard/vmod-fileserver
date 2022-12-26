@@ -1,0 +1,47 @@
+varnishtest "mime types"
+
+shell {
+	echo -n "foo" > ${tmpdir}/foo.jpeg
+	echo -n "foo" > ${tmpdir}/foo.json
+	echo -n "foo" > ${tmpdir}/foo.pdf
+	touch ${tmpdir}/empty.pdf
+
+	cat << EOF > ${tmpdir}/mimes
+application/pdf pdf
+  application/json   		 json
+#comment txt
+
+
+}
+
+varnish v1 -vcl {
+	import fileserver from "${vmod}";
+
+	backend default none;
+
+	sub vcl_init {
+		new www = fileserver.root("${tmpdir}", "${tmpdir}/mimes");
+	}
+
+	sub vcl_recv {
+		set req.backend_hint = www.backend();
+	}
+} -start
+
+client c1 {
+	txreq -url "/foo.jpeg"
+	rxresp
+	expect resp.http.content-type == <undef>
+
+	txreq -url "/foo.json"
+	rxresp
+	expect resp.http.content-type == "application/json"
+
+	txreq -url "/foo.pdf"
+	rxresp
+	expect resp.http.content-type == "application/pdf"
+
+	txreq -url "/empty.pdf"
+	rxresp
+	expect resp.http.content-type == <undef>
+} -run

@@ -1,0 +1,33 @@
+varnishtest "vcl_discard"
+
+varnish v1 -cliok "param.set thread_pools 1"
+varnish v1 -vcl {
+	import fileserver from "${vmod}";
+
+	backend default none;
+
+	sub vcl_init {
+		new www = fileserver.root("${tmpdir}");
+	}
+
+	sub vcl_recv {
+		set req.backend_hint = www.backend();
+	}
+} -start
+
+client c1 {
+	txreq -url "/foo"
+	rxresp
+} -run
+
+# load a new VCL to discard the first one
+varnish v1 -vcl {backend be none;}
+varnish v1 -cliok {vcl.discard vcl1}
+
+# tickle the CLI to trigger the effective VCL discard
+varnish v1 -cliok ping
+varnish v1 -expect n_vcl_avail == 1
+varnish v1 -expect n_vcl_discard == 0
+
+# tickle again, check we survived discard-time assertions
+varnish v1 -cliok ping

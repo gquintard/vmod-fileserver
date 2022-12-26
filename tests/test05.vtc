@@ -1,0 +1,42 @@
+varnishtest "methods"
+
+shell {
+	echo -n "foo" > ${tmpdir}/foo.pdf
+
+	echo "application/pdf pdf" > ${tmpdir}/mimes
+}
+
+varnish v1 -vcl {
+	import fileserver from "${vmod}";
+
+	backend default none;
+
+	sub vcl_init {
+		new www = fileserver.root("${tmpdir}", "${tmpdir}/mimes");
+	}
+
+	sub vcl_recv {
+		set req.backend_hint = www.backend();
+		return (pass);
+	}
+} -start
+
+client c1 {
+	txreq -method "GET" -url "/foo.pdf"
+	rxresp
+	expect resp.status == 200
+	expect resp.http.content-type == "application/pdf"
+	expect resp.body == "foo"
+
+	txreq -method "HEAD" -url "/foo.pdf"
+	rxresp
+	expect resp.status == 200
+	expect resp.http.content-type == "application/pdf"
+	expect resp.body == ""
+
+	txreq -method "POST" -url "/foo.pdf"
+	rxresp
+	expect resp.status == 405
+	expect resp.http.content-type == <undef>
+	expect resp.body == ""
+} -run
