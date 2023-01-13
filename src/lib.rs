@@ -56,7 +56,7 @@ impl Serve<FileTransfer> for FileBackend<> {
         // can we avoid sending a body?
         let mut is_304 = false;
         if let Some(inm) = bereq.header("if-none-match") {
-            if inm == &etag || (inm.starts_with("W/") && &inm[2..] == &etag) {
+            if inm == etag || (inm.starts_with("W/") && inm[2..] == etag) {
                 is_304 = true;
             }
         } else if let Some(ims) = bereq.header("if-modified-since") {
@@ -155,7 +155,14 @@ impl root {
             Some(p) => Some(build_mime_dict(p)?),
         };
 
-        let backend = BackendBuilder::new(vcl_name, FileBackend{mimes: mimes.clone(), path: path.to_string()}).unwrap().enable_get_headers().build(ctx)?;
+        let backend = BackendBuilder::new(vcl_name,
+                                          FileBackend{
+                                              mimes,
+                                              path: path.to_string()
+                                          })
+            .unwrap()
+            .enable_get_headers()
+            .build(ctx)?;
 
         Ok(root { backend })
     }
