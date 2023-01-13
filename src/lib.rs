@@ -21,6 +21,59 @@ varnish::vtc!(test04);
 varnish::vtc!(test05);
 varnish::vtc!(test06);
 
+// root is the Rust implement of the VCC definition (in vmod.vcc)
+// it only contains backend, which wraps a FileBackend, and
+// handles response body creation with a FileTransfer
+#[allow(non_camel_case_types)]
+struct root {
+    backend: Backend<FileBackend, FileTransfer>,
+}
+
+// Rust implementation of the VCC object, it mirrors what happens in C, except
+// for a couple of points:
+// - we create and return a Rust object, instead of a void pointer
+// - new() returns a Result, leaving the error handling to varnish-rs
+impl root {
+    pub fn new(
+        ctx: &mut Ctx,
+        vcl_name: &str,
+        path: &str,
+        mime_db: Option<&str>,
+    ) -> Result<Self> {
+        // sanity check (note that we don't have null pointers, so path is
+        // at worst empty)
+        if path.is_empty() {
+            return Err(format!("fileserver: can't create {} with an empty path", vcl_name).into());
+        }
+
+        // store the mime database in memory, possibly
+        let mimes = match mime_db {
+            // if there's no path given, we try with a default one, and don't
+            // complain if it fails
+            None => build_mime_dict("/etc/mime.types").ok(),
+            // empty strings means the user does NOT want the mime db
+            Some("") => None,
+            // otherwise we do want the file to be valid
+            Some(p) => Some(build_mime_dict(p)?),
+        };
+
+        let backend = BackendBuilder::new(vcl_name,
+                                          FileBackend{
+                                              mimes,
+                                              path: path.to_string()
+                                          })
+            .unwrap()
+            .enable_get_headers()
+            .build(ctx)?;
+
+        Ok(root { backend })
+    }
+
+    pub fn backend(&self, _ctx: &Ctx) -> *const varnish_sys::director {
+        self.backend.vcl_ptr()
+    }
+}
+
 struct FileBackend {
     path: String,                           // top directory of our backend
     mimes: Option<HashMap<String, String>>, // a hashmap linking extensions to maps (optional)
@@ -121,56 +174,6 @@ impl Transfer for FileTransfer {
     }
 }
 
-// root is the Rust implement of the VCC definition (in vmod.vcc)
-#[allow(non_camel_case_types)]
-struct root {
-    backend: Backend<FileBackend, FileTransfer>,
-}
-
-// Rust implementation of the VCC object, it mirrors what happens in C, except
-// for a couple of points:
-// - we create and return a Rust object, instead of a void pointer
-// - new() returns a Result, leaving the error handling to varnish-rs
-impl root {
-    pub fn new(
-        ctx: &mut Ctx,
-        vcl_name: &str,
-        path: &str,
-        mime_db: Option<&str>,
-    ) -> Result<Self> {
-        // sanity check (note that we don't have null pointers, so path is
-        // at worst empty)
-        if path.is_empty() {
-            return Err(format!("fileserver: can't create {} with an empty path", vcl_name).into());
-        }
-
-        // store the mime database in memory, possibly
-        let mimes = match mime_db {
-            // if there's no path given, we try with a default one, and don't
-            // complain if it fails
-            None => build_mime_dict("/etc/mime.types").ok(),
-            // empty strings means the user does NOT want the mime db
-            Some("") => None,
-            // otherwise we do want the file to be valid
-            Some(p) => Some(build_mime_dict(p)?),
-        };
-
-        let backend = BackendBuilder::new(vcl_name,
-                                          FileBackend{
-                                              mimes,
-                                              path: path.to_string()
-                                          })
-            .unwrap()
-            .enable_get_headers()
-            .build(ctx)?;
-
-        Ok(root { backend })
-    }
-
-    pub fn backend(&self, _ctx: &Ctx) -> *const varnish_sys::director {
-        self.backend.vcl_ptr()
-    }
-}
 
 // reads a mime database into a hashmap, if we can
 fn build_mime_dict(path: &str) -> Result<HashMap<String, String>> {
