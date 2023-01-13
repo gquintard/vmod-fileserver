@@ -5,7 +5,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::fs::{File, Metadata};
 use std::io::{BufRead, BufReader, Read, Take};
-use std::os::raw::{c_uint, c_void};
 use std::os::unix::fs::MetadataExt;
 
 use chrono::DateTime;
@@ -20,6 +19,7 @@ varnish::vtc!(test02);
 varnish::vtc!(test03);
 varnish::vtc!(test04);
 varnish::vtc!(test05);
+varnish::vtc!(test06);
 
 struct FileBackend {
     path: String,                           // top directory of our backend
@@ -34,32 +34,6 @@ impl Serve<FileTransfer> for FileBackend<> {
         // we know that bereq and bereq_url, so we can just unwrap the options
         let bereq = ctx.http_bereq.as_ref().unwrap();
         let bereq_url = bereq.url().unwrap();
-
-        unsafe {
-            // mimicking V1F_SendReq in varnish-cache, just to handle the request body
-            // TODO: check if we can just get rid of this code and let Varnish handle it
-            let bo = ctx.raw.bo.as_mut().unwrap();
-            if !bo.bereq_body.is_null() {
-                varnish_sys::ObjIterate(bo.wrk, bo.bereq_body, std::ptr::null_mut(), Some(body_send_iterate), 0);
-            } else if !bo.req.is_null() && (*bo.req).req_body_status != varnish_sys::BS_NONE.as_ptr() {
-                let i = varnish_sys::VRB_Iterate(
-                    bo.wrk,
-                    bo.vsl.as_mut_ptr(),
-                    bo.req,
-                    Some(body_send_iterate),
-                    std::ptr::null_mut(),
-                    );
-
-                if (*bo.req).req_body_status != varnish_sys::BS_CACHED.as_ptr() {
-                    bo.no_retry = "req.body not cached\0".as_ptr() as *const i8;
-                }
-
-                if (*bo.req).req_body_status == varnish_sys::BS_ERROR.as_ptr() {
-                    assert!(i < 0);
-                    (*bo.req).doclose = &varnish_sys::SC_RX_BODY[0];
-                }
-            }
-        }
 
         // combine root and url into something that's hopefully safe
         let path = assemble_file_path(&self.path, bereq_url);
@@ -118,7 +92,7 @@ impl Serve<FileTransfer> for FileBackend<> {
         // set all the headers we can, including the content-type if we can
         beresp.set_header("content-length", &format!("{}", cl))?;
         beresp.set_header("etag", &etag)?;
-        beresp.set_header("last-modified", &modified.format("%a, %d %b %Y  %H:%M:%S GMT").to_string())?;
+        beresp.set_header("last-modified", &modified.format("%a, %d %b %Y %H:%M:%S GMT").to_string())?;
 
         // we only care about content-type if there's content
         if cl > 0 {
@@ -142,11 +116,8 @@ impl Transfer for FileTransfer {
     fn len(&self) -> Option<usize> {
         Some(self.reader.limit() as usize)
     }
-}
-
-impl Read for FileTransfer {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.reader.read(buf)
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        self.reader.read(buf).map_err(|e| e.to_string().into())
     }
 }
 
@@ -180,7 +151,7 @@ impl root {
             None => build_mime_dict("/etc/mime.types").ok(),
             // empty strings means the user does NOT want the mime db
             Some("") => None,
-            // otherswise we do want the file to be valid
+            // otherwise we do want the file to be valid
             Some(p) => Some(build_mime_dict(p)?),
         };
 
@@ -194,21 +165,11 @@ impl root {
     }
 }
 
-// we are uninterested by request bodies, so we just read and discard them
-unsafe extern "C" fn body_send_iterate(
-    _priv_: *mut c_void,
-    _flush: c_uint,
-    _ptr: *const c_void,
-    _l: varnish_sys::ssize_t,
-) -> i32 {
-    0
-}
-
 // reads a mime database into a hashmap, if we can
 fn build_mime_dict(path: &str) -> Result<HashMap<String, String>> {
     let mut h = HashMap::new();
 
-    let f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let f = File::open(path).map_err(|e| e.to_string())?;
     for line in BufReader::new(f).lines() {
         let l = line.map_err(|e| e.to_string())?;
         let mut ws_it = l.split_whitespace();
@@ -229,27 +190,6 @@ fn build_mime_dict(path: &str) -> Result<HashMap<String, String>> {
         }
     }
     Ok(h)
-}
-
-#[cfg(test)]
-mod build_mime_dict_tests {
-    use super::build_mime_dict;
-
-    #[test]
-    fn bad() {
-        assert_eq!(build_mime_dict("tests/bad1.types").err().unwrap().to_string(), "fileserver: error, in tests/bad1.types, extension txt appears to have two types (application/pdf and application/text)".to_string());
-    }
-
-    #[test]
-    fn good() {
-        let h = build_mime_dict("tests/good1.types").unwrap();
-        assert_eq!(h["t1"], "type1");
-        assert_eq!(h["T1"], "type1");
-        assert_eq!(h["t3"], "type3");
-        assert_eq!(h["ty3"], "type3");
-        assert_eq!(h["T3"], "type3");
-        assert_eq!(h.get("t2"), None);
-    }
 }
 
 // given root_path and url, assemble the two so that the final path is still
@@ -284,8 +224,26 @@ fn assemble_file_path(root_path: &str, url: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(complete_path)
 }
 
+fn generate_etag(metadata: &std::fs::Metadata) -> String {
+    #[derive(Hash)]
+    struct ShortMd {
+        inode: u64,
+        size: u64,
+        modified: std::time::SystemTime,
+    }
+
+    let smd = ShortMd {
+        inode: metadata.ino(),
+        size: metadata.size(),
+        modified: metadata.modified().unwrap(),
+    };
+    let mut h = DefaultHasher::new();
+    smd.hash(&mut h);
+    format!("\"{}\"", h.finish())
+}
+
 #[cfg(test)]
-mod assemble_file_path_tests {
+mod tests {
     use super::assemble_file_path;
 
     fn tc(root_path: &str, url: &str, expected: &str) {
@@ -306,24 +264,23 @@ mod assemble_file_path_tests {
 
     #[test]
     fn current() { tc("/foo/bar", "/bar/././qux", "/foo/bar/bar/qux"); }
-}
 
-#[derive(Hash)]
-struct ShortMd {
-    inode: u64,
-    size: u64,
-    modified: std::time::SystemTime,
-}
+    use super::build_mime_dict;
+    #[test]
+    fn bad() {
+        assert_eq!(build_mime_dict("tests/bad1.types").err().unwrap().to_string(), "fileserver: error, in tests/bad1.types, extension txt appears to have two types (application/pdf and application/text)".to_string());
+    }
 
-fn generate_etag(metadata: &std::fs::Metadata) -> String {
-    let smd = ShortMd {
-        inode: metadata.ino(),
-        size: metadata.size(),
-        modified: metadata.modified().unwrap(),
-    };
-    let mut h = DefaultHasher::new();
-    smd.hash(&mut h);
-    format!("\"{}\"", h.finish())
+    #[test]
+    fn good() {
+        let h = build_mime_dict("tests/good1.types").unwrap();
+        assert_eq!(h["t1"], "type1");
+        assert_eq!(h["T1"], "type1");
+        assert_eq!(h["t3"], "type3");
+        assert_eq!(h["ty3"], "type3");
+        assert_eq!(h["T3"], "type3");
+        assert_eq!(h.get("t2"), None);
+    }
 }
 
 
