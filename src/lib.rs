@@ -12,7 +12,7 @@ use chrono::offset::Utc;
 
 use varnish::vcl::Result;
 use varnish::vcl::ctx::Ctx;
-use varnish::vcl::backend::{Backend, BackendBuilder, Serve, Transfer};
+use varnish::vcl::backend::{Backend, Serve, Transfer, VCLBackendPtr};
 
 varnish::vtc!(test01);
 varnish::vtc!(test02);
@@ -57,19 +57,15 @@ impl root {
             Some(p) => Some(build_mime_dict(p)?),
         };
 
-        let backend = BackendBuilder::new(vcl_name,
+        let backend = Backend::new(ctx, vcl_name,
                                           FileBackend{
                                               mimes,
                                               path: path.to_string()
-                                          })
-            .unwrap()
-            .enable_get_headers()
-            .build(ctx)?;
-
+                                          })?;
         Ok(root { backend })
     }
 
-    pub fn backend(&self, _ctx: &Ctx) -> *const varnish_sys::director {
+    pub fn backend(&self, _ctx: &Ctx) -> VCLBackendPtr {
         self.backend.vcl_ptr()
     }
 }
@@ -80,9 +76,10 @@ struct FileBackend {
 }
 
 impl Serve<FileTransfer> for FileBackend<> {
-    fn get_type(&self) -> String {
-        "fileserver".into()
+    fn get_type(&self) -> &str {
+        "fileserver"
     }
+
     fn get_headers(&self, ctx: &mut Ctx) -> Result<Option<FileTransfer>> {
         // we know that bereq and bereq_url, so we can just unwrap the options
         let bereq = ctx.http_bereq.as_ref().unwrap();
