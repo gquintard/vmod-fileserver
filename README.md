@@ -7,8 +7,8 @@ As usual for vmods, the full API is in [vmod.vcc](vmod.vcc).
 ## Version matching
 
 | vmod-fileserver | varnish |
-| :----------- | :-----: |
-| 0.0.1        | 7.2     |
+| :------------- | :-----: |
+| 0.0.1 -> 0.0.2 | 7.2     |
 
 ## VCL Examples
 
