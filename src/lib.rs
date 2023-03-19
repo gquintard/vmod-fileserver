@@ -1,5 +1,6 @@
 varnish::boilerplate!();
 
+use std::error::Error;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -10,7 +11,6 @@ use std::os::unix::fs::MetadataExt;
 use chrono::DateTime;
 use chrono::offset::Utc;
 
-use varnish::vcl::Result;
 use varnish::vcl::ctx::Ctx;
 use varnish::vcl::backend::{Backend, Serve, Transfer, VCLBackendPtr};
 
@@ -39,7 +39,7 @@ impl root {
         vcl_name: &str,
         path: &str,
         mime_db: Option<&str>,
-    ) -> Result<Self> {
+    ) -> Result<Self, Box<dyn Error>> {
         // sanity check (note that we don't have null pointers, so path is
         // at worst empty)
         if path.is_empty() {
@@ -60,8 +60,9 @@ impl root {
         let backend = Backend::new(ctx, vcl_name,
                                           FileBackend{
                                               mimes,
-                                              path: path.to_string()
-                                          })?;
+                                              path: path.to_string(),
+                                          },
+                                          false)?;
         Ok(root { backend })
     }
 
@@ -80,7 +81,7 @@ impl Serve<FileTransfer> for FileBackend<> {
         "fileserver"
     }
 
-    fn get_headers(&self, ctx: &mut Ctx) -> Result<Option<FileTransfer>> {
+    fn get_headers(&self, ctx: &mut Ctx) -> Result<Option<FileTransfer>, Box<dyn Error>> {
         // we know that bereq and bereq_url, so we can just unwrap the options
         let bereq = ctx.http_bereq.as_ref().unwrap();
         let bereq_url = bereq.url().unwrap();
@@ -166,14 +167,14 @@ impl Transfer for FileTransfer {
     fn len(&self) -> Option<usize> {
         Some(self.reader.limit() as usize)
     }
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.reader.read(buf).map_err(|e| e.to_string().into())
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn Error>> {
+        self.reader.read(buf).map_err(|e| e.into())
     }
 }
 
 
 // reads a mime database into a hashmap, if we can
-fn build_mime_dict(path: &str) -> Result<HashMap<String, String>> {
+fn build_mime_dict(path: &str) -> Result<HashMap<String, String>, Box<dyn Error>> {
     let mut h = HashMap::new();
 
     let f = File::open(path).map_err(|e| e.to_string())?;
