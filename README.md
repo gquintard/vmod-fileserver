@@ -8,6 +8,7 @@ As usual for vmods, the full API is in [vmod.vcc](vmod.vcc).
 
 | vmod-fileserver | varnish |
 | :------------- | :-----: |
+| 0.0.3          | 7.3     |
 | 0.0.1 -> 0.0.2 | 7.2     |
 
 ## VCL Examples
@@ -32,7 +33,7 @@ You'll need:
 - `cargo` (and the accompanying `rust` package)
 - `clang`
 - `python3`
-- the `varnish` 7.2 development libraries/headers ([depends on the `varnish` crate you are using](https://github.com/gquintard/varnish-rs#versions))
+- the `varnish` 7.3 development libraries/headers ([depends on the `varnish` crate you are using](https://github.com/gquintard/varnish-rs#versions))
 
 ## Build and test
 
