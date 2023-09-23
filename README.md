@@ -8,6 +8,7 @@ As usual for vmods, the full API is in [vmod.vcc](vmod.vcc).
 
 | vmod-fileserver | varnish |
 | :------------- | :-----: |
+| 0.0.5          | 7.4     |
 | 0.0.3 -> 0.0.4 | 7.3     |
 | 0.0.1 -> 0.0.2 | 7.2     |
 
