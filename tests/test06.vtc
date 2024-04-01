@@ -1,0 +1,36 @@
+varnishtest "make sure that not dealing with the request body is ok"
+
+shell {
+	echo -n "foo" > ${tmpdir}/foo
+}
+
+varnish v1 -vcl {
+	import fileserver from "${vmod}";
+
+	backend default none;
+
+	sub vcl_init {
+		new www = fileserver.root("${tmpdir}");
+	}
+
+	sub vcl_recv {
+		set req.backend_hint = www.backend();
+	}
+
+	sub vcl_backend_fetch {
+		// prevent the built-in vcl from nuking the body
+		return(fetch);
+	}
+
+	sub vcl_backend_response {
+		if (bereq.retries == 0) {
+			return(retry);
+		}
+	}
+} -start
+
+client c1 {
+	txreq -url "/foo"
+	rxresp
+	expect resp.body == "foo"
+} -run
