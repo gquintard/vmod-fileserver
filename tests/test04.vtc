@@ -28,6 +28,7 @@ process p1 {
 	LM=$(curl -o /dev/null -sqw '%header{last-modified}' http://${v1_addr}:${v1_port}/foo)
 	echo $LM
 	test -n "$LM"
+	curl -o /dev/null -v http://${v1_addr}:${v1_port}/foo
 	ETAG=$(curl -o /dev/null -sqw '%header{etag}' http://${v1_addr}:${v1_port}/foo)
 	test -n "$ETAG"
 
