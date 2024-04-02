@@ -28,8 +28,7 @@ process p1 {
 	LM=$(curl -o /dev/null -sqw '%header{last-modified}' http://${v1_addr}:${v1_port}/foo)
 	echo $LM
 	test -n "$LM"
-	curl -o /dev/null -v http://${v1_addr}:${v1_port}/foo
-	ETAG=$(curl -o /dev/null -sqw '%header{etag}' http://${v1_addr}:${v1_port}/foo)
+	ETAG=$(curl -I -sqw '%header{etag}' http://${v1_addr}:${v1_port}/foo | grep -i ^etag: | cut -d: -f2- | sed 's/^ *\(.*\).*/\1/' | tr -d '\r')
 	test -n "$ETAG"
 
 	tc() {
