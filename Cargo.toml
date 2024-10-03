@@ -4,11 +4,10 @@ version = "0.0.6"
 edition = "2021"
 license = "BSD-3-Clause"
 
-[build-dependencies]
-varnish = "0.0.19"
-
 [dependencies]
-varnish = "0.0.19"
+varnish = { git = "https://github.com/nyurik/varnish-rs.git", branch = "fixes-for-reqwest"}
+varnish-sys = { git = "https://github.com/nyurik/varnish-rs.git", branch = "fixes-for-reqwest"}
+varnish-macros = { git = "https://github.com/nyurik/varnish-rs.git", branch = "fixes-for-reqwest" }
 chrono = "0.4.23"
 
 [lib]

@@ -1,5 +1,3 @@
-varnish::boilerplate!();
-
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::error::Error;
@@ -10,17 +8,70 @@ use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use chrono::offset::Utc;
-use chrono::DateTime;
-use varnish::vcl::backend::{Backend, Serve, Transfer, VCLBackendPtr};
-use varnish::vcl::ctx::{Ctx, LogTag};
+use chrono::{DateTime, Utc};
+use varnish::run_vtc_tests;
+use varnish::vcl::{Backend, Ctx, Serve, Transfer};
+use varnish_sys::vcl::{LogTag, VclResult};
 
-varnish::vtc!(test01);
-varnish::vtc!(test02);
-varnish::vtc!(test03);
-varnish::vtc!(test04);
-varnish::vtc!(test05);
-varnish::vtc!(test06);
+run_vtc_tests!("tests/*.vtc");
+
+#[varnish::vmod]
+mod fileserver {
+    use std::error::Error;
+
+    use varnish::vcl::{Backend, Ctx};
+    use varnish_sys::ffi::VCL_BACKEND;
+
+    use super::root;
+    use crate::{build_mime_dict, FileBackend};
+
+    // Rust implementation of the VCC object, it mirrors what happens in C, except
+    // for a couple of points:
+    // - we create and return a Rust object, instead of a void pointer
+    // - new() returns a Result, leaving the error handling to varnish-rs
+    impl root {
+        pub fn new(
+            ctx: &mut Ctx,
+            #[vcl_name] vcl_name: &str,
+            path: &str,
+            mime_db: Option<&str>,
+        ) -> Result<Self, Box<dyn Error>> {
+            // sanity check (note that we don't have null pointers, so path is
+            // at worst empty)
+            if path.is_empty() {
+                return Err(
+                    format!("fileserver: can't create {vcl_name} with an empty path").into(),
+                );
+            }
+
+            // store the mime database in memory, possibly
+            let mimes = match mime_db {
+                // if there's no path given, we try with a default one, and don't
+                // complain if it fails
+                None => build_mime_dict("/etc/mime.types").ok(),
+                // empty strings means the user does NOT want the mime db
+                Some("") => None,
+                // otherwise we do want the file to be valid
+                Some(p) => Some(build_mime_dict(p)?),
+            };
+
+            let backend = Backend::new(
+                ctx,
+                vcl_name,
+                FileBackend {
+                    mimes,
+                    path: path.to_string(),
+                },
+                false,
+            )?;
+            Ok(root { backend })
+        }
+
+        pub fn backend(&self, _ctx: &Ctx) -> VCL_BACKEND {
+            self.backend.vcl_ptr()
+        }
+    }
+}
 
 // root is the Rust implement of the VCC definition (in vmod.vcc)
 // it only contains backend, which wraps a FileBackend, and
@@ -28,51 +79,6 @@ varnish::vtc!(test06);
 #[allow(non_camel_case_types)]
 struct root {
     backend: Backend<FileBackend, FileTransfer>,
-}
-
-// Rust implementation of the VCC object, it mirrors what happens in C, except
-// for a couple of points:
-// - we create and return a Rust object, instead of a void pointer
-// - new() returns a Result, leaving the error handling to varnish-rs
-impl root {
-    pub fn new(
-        ctx: &mut Ctx,
-        vcl_name: &str,
-        path: &str,
-        mime_db: Option<&str>,
-    ) -> Result<Self, Box<dyn Error>> {
-        // sanity check (note that we don't have null pointers, so path is
-        // at worst empty)
-        if path.is_empty() {
-            return Err(format!("fileserver: can't create {vcl_name} with an empty path").into());
-        }
-
-        // store the mime database in memory, possibly
-        let mimes = match mime_db {
-            // if there's no path given, we try with a default one, and don't
-            // complain if it fails
-            None => build_mime_dict("/etc/mime.types").ok(),
-            // empty strings means the user does NOT want the mime db
-            Some("") => None,
-            // otherwise we do want the file to be valid
-            Some(p) => Some(build_mime_dict(p)?),
-        };
-
-        let backend = Backend::new(
-            ctx,
-            vcl_name,
-            FileBackend {
-                mimes,
-                path: path.to_string(),
-            },
-            false,
-        )?;
-        Ok(root { backend })
-    }
-
-    pub fn backend(&self, _ctx: &Ctx) -> VCLBackendPtr {
-        self.backend.vcl_ptr()
-    }
 }
 
 struct FileBackend {
@@ -85,7 +91,7 @@ impl Serve<FileTransfer> for FileBackend {
         "fileserver"
     }
 
-    fn get_headers(&self, ctx: &mut Ctx) -> Result<Option<FileTransfer>, Box<dyn Error>> {
+    fn get_headers(&self, ctx: &mut Ctx) -> VclResult<Option<FileTransfer>> {
         // we know that bereq and bereq_url, so we can just unwrap the options
         let bereq = ctx.http_bereq.as_ref().unwrap();
         let bereq_url = bereq.url().unwrap();
@@ -94,7 +100,7 @@ impl Serve<FileTransfer> for FileBackend {
         let path = assemble_file_path(&self.path, bereq_url);
         ctx.log(
             LogTag::Debug,
-            &format!("fileserver: file on disk: {path:?}"),
+            format!("fileserver: file on disk: {path:?}"),
         );
 
         // reset the bereq lifetime, otherwise we couldn't use ctx in the line above
@@ -174,8 +180,8 @@ struct FileTransfer {
 }
 
 impl Transfer for FileTransfer {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn Error>> {
-        self.reader.read(buf).map_err(|e| e.into())
+    fn read(&mut self, buf: &mut [u8]) -> VclResult<usize> {
+        self.reader.read(buf).map_err(|e| e.to_string().into())
     }
     fn len(&self) -> Option<usize> {
         Some(self.reader.limit() as usize)
@@ -232,7 +238,7 @@ fn assemble_file_path(root_path: &str, url: &str) -> PathBuf {
                 components.pop();
             }
             Normal(s) => {
-                // we can unwrap as url_path was created from a &str
+                // we can unwrap as url_path was created from an &str
                 components.push(s.to_str().unwrap());
             }
         };
