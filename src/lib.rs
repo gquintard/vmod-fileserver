@@ -1,18 +1,19 @@
 varnish::boilerplate!();
 
-use std::error::Error;
-use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::collections::HashMap;
+use std::error::Error;
 use std::fs::{File, Metadata};
+use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read, Take};
 use std::os::unix::fs::MetadataExt;
+use std::path::PathBuf;
+use std::time::SystemTime;
 
-use chrono::DateTime;
 use chrono::offset::Utc;
-
-use varnish::vcl::ctx::Ctx;
+use chrono::DateTime;
 use varnish::vcl::backend::{Backend, Serve, Transfer, VCLBackendPtr};
+use varnish::vcl::ctx::{Ctx, LogTag};
 
 varnish::vtc!(test01);
 varnish::vtc!(test02);
@@ -43,7 +44,7 @@ impl root {
         // sanity check (note that we don't have null pointers, so path is
         // at worst empty)
         if path.is_empty() {
-            return Err(format!("fileserver: can't create {} with an empty path", vcl_name).into());
+            return Err(format!("fileserver: can't create {vcl_name} with an empty path").into());
         }
 
         // store the mime database in memory, possibly
@@ -57,12 +58,15 @@ impl root {
             Some(p) => Some(build_mime_dict(p)?),
         };
 
-        let backend = Backend::new(ctx, vcl_name,
-                                          FileBackend{
-                                              mimes,
-                                              path: path.to_string(),
-                                          },
-                                          false)?;
+        let backend = Backend::new(
+            ctx,
+            vcl_name,
+            FileBackend {
+                mimes,
+                path: path.to_string(),
+            },
+            false,
+        )?;
         Ok(root { backend })
     }
 
@@ -76,7 +80,7 @@ struct FileBackend {
     mimes: Option<HashMap<String, String>>, // a hashmap linking extensions to maps (optional)
 }
 
-impl Serve<FileTransfer> for FileBackend<> {
+impl Serve<FileTransfer> for FileBackend {
     fn get_type(&self) -> &str {
         "fileserver"
     }
@@ -88,7 +92,10 @@ impl Serve<FileTransfer> for FileBackend<> {
 
         // combine root and url into something that's hopefully safe
         let path = assemble_file_path(&self.path, bereq_url);
-        ctx.log(varnish::vcl::ctx::LogTag::Debug, &format!("fileserver: file on disk: {:?}", path));
+        ctx.log(
+            LogTag::Debug,
+            &format!("fileserver: file on disk: {path:?}"),
+        );
 
         // reset the bereq lifetime, otherwise we couldn't use ctx in the line above
         // yes, it feels weird at first, but it's for our own good
@@ -98,7 +105,7 @@ impl Serve<FileTransfer> for FileBackend<> {
         let beresp = ctx.http_beresp.as_mut().unwrap();
 
         // open the file and get some metadata
-        let f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+        let f = File::open(&path).map_err(|e| e.to_string())?;
         let metadata: Metadata = f.metadata().map_err(|e| e.to_string())?;
         let cl = metadata.len();
         let modified: DateTime<Utc> = DateTime::from(metadata.modified().unwrap());
@@ -135,15 +142,18 @@ impl Serve<FileTransfer> for FileBackend<> {
             if bereq.method() == Some("GET") {
                 transfer = Some(FileTransfer {
                     // prevent reading more than expected
-                    reader: std::io::BufReader::new(f).take(cl)
+                    reader: BufReader::new(f).take(cl),
                 });
             }
         }
 
         // set all the headers we can, including the content-type if we can
-        beresp.set_header("content-length", &format!("{}", cl))?;
+        beresp.set_header("content-length", &format!("{cl}"))?;
         beresp.set_header("etag", &etag)?;
-        beresp.set_header("last-modified", &modified.format("%a, %d %b %Y %H:%M:%S GMT").to_string())?;
+        beresp.set_header(
+            "last-modified",
+            &modified.format("%a, %d %b %Y %H:%M:%S GMT").to_string(),
+        )?;
 
         // we only care about content-type if there's content
         if cl > 0 {
@@ -164,14 +174,13 @@ struct FileTransfer {
 }
 
 impl Transfer for FileTransfer {
-    fn len(&self) -> Option<usize> {
-        Some(self.reader.limit() as usize)
-    }
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn Error>> {
         self.reader.read(buf).map_err(|e| e.into())
     }
+    fn len(&self) -> Option<usize> {
+        Some(self.reader.limit() as usize)
+    }
 }
-
 
 // reads a mime database into a hashmap, if we can
 fn build_mime_dict(path: &str) -> Result<HashMap<String, String>, Box<dyn Error>> {
@@ -188,11 +197,14 @@ fn build_mime_dict(path: &str) -> Result<HashMap<String, String>, Box<dyn Error>
         };
         // ignore comments
         if mime.chars().next().unwrap_or('-') == '#' {
-            continue
+            continue;
         }
         for ext in ws_it {
             if let Some(old_mime) = h.get(ext) {
-                return Err(format!("fileserver: error, in {}, extension {} appears to have two types ({} and {})", path, ext, old_mime, mime).into());
+                return Err(format!(
+                    "fileserver: error, in {path}, extension {ext} appears to have two types ({old_mime} and {mime})",
+                )
+                .into());
             }
             h.insert(ext.to_string(), mime.to_string());
         }
@@ -204,24 +216,26 @@ fn build_mime_dict(path: &str) -> Result<HashMap<String, String>, Box<dyn Error>
 // inside root_path
 // There's no access to the file system, and therefore no link resolution
 // it can be an issue for multitenancy, beware!
-fn assemble_file_path(root_path: &str, url: &str) -> std::path::PathBuf {
+fn assemble_file_path(root_path: &str, url: &str) -> PathBuf {
     assert_ne!(root_path, "");
 
-    let url_path = std::path::PathBuf::from(url);
+    let url_path = PathBuf::from(url);
     let mut components = Vec::new();
 
     for c in url_path.components() {
-            use std::path::Component::*;
-            match c {
-                Prefix(_) => unreachable!(),
-                RootDir => { },
-                CurDir => (),
-                ParentDir => { components.pop(); },
-                Normal(s) => {
-                    // we can unwrap as url_path was created from an &str
-                    components.push(s.to_str().unwrap());
-                },
-            };
+        use std::path::Component::*;
+        match c {
+            Prefix(_) => unreachable!(),
+            RootDir => {}
+            CurDir => (),
+            ParentDir => {
+                components.pop();
+            }
+            Normal(s) => {
+                // we can unwrap as url_path was created from a &str
+                components.push(s.to_str().unwrap());
+            }
+        };
     }
 
     let mut complete_path = String::from(root_path);
@@ -229,15 +243,15 @@ fn assemble_file_path(root_path: &str, url: &str) -> std::path::PathBuf {
         complete_path.push('/');
         complete_path.push_str(c);
     }
-    std::path::PathBuf::from(complete_path)
+    PathBuf::from(complete_path)
 }
 
-fn generate_etag(metadata: &std::fs::Metadata) -> String {
+fn generate_etag(metadata: &Metadata) -> String {
     #[derive(Hash)]
     struct ShortMd {
         inode: u64,
         size: u64,
-        modified: std::time::SystemTime,
+        modified: SystemTime,
     }
 
     let smd = ShortMd {
@@ -252,26 +266,38 @@ fn generate_etag(metadata: &std::fs::Metadata) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::assemble_file_path;
 
     fn tc(root_path: &str, url: &str, expected: &str) {
-        assert_eq!(assemble_file_path(root_path, url), std::path::PathBuf::from(expected));
+        assert_eq!(assemble_file_path(root_path, url), PathBuf::from(expected));
     }
 
     #[test]
-    fn simple() { tc("/foo/bar", "/baz/qux", "/foo/bar/baz/qux"); }
+    fn simple() {
+        tc("/foo/bar", "/baz/qux", "/foo/bar/baz/qux");
+    }
 
     #[test]
-    fn simple_slash() { tc("/foo/bar/", "/baz/qux", "/foo/bar/baz/qux"); }
+    fn simple_slash() {
+        tc("/foo/bar/", "/baz/qux", "/foo/bar/baz/qux");
+    }
 
     #[test]
-    fn parent() { tc("/foo/bar", "/bar/../qux", "/foo/bar/qux"); }
+    fn parent() {
+        tc("/foo/bar", "/bar/../qux", "/foo/bar/qux");
+    }
 
     #[test]
-    fn too_many_parents() { tc("/foo/bar", "/bar/../../qux", "/foo/bar/qux"); }
+    fn too_many_parents() {
+        tc("/foo/bar", "/bar/../../qux", "/foo/bar/qux");
+    }
 
     #[test]
-    fn current() { tc("/foo/bar", "/bar/././qux", "/foo/bar/bar/qux"); }
+    fn current() {
+        tc("/foo/bar", "/bar/././qux", "/foo/bar/bar/qux");
+    }
 
     use super::build_mime_dict;
     #[test]
@@ -290,5 +316,3 @@ mod tests {
         assert_eq!(h.get("t2"), None);
     }
 }
-
-

@@ -16,4 +16,4 @@ $Method BACKEND .backend()
 Return the BACKEND associate to the object. There are a few things to know:
 - only `GET` and `HEAD` methods are supported
 - `etag`/`if-none-match` are supported, as well as `last-modified`/`if-modified-since`
-- `etag` is a hash of the file size, midified time and inode
+- `etag` is a hash of the file size, modified time and inode
