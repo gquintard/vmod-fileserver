@@ -10,8 +10,7 @@ use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use varnish::run_vtc_tests;
-use varnish::vcl::{Backend, Ctx, Serve, Transfer};
-use varnish_sys::vcl::{LogTag, VclResult};
+use varnish::vcl::{Backend, Ctx, LogTag, Serve, Transfer, VclResult};
 
 run_vtc_tests!("tests/*.vtc");
 
@@ -98,10 +97,7 @@ impl Serve<FileTransfer> for FileBackend {
 
         // combine root and url into something that's hopefully safe
         let path = assemble_file_path(&self.path, bereq_url);
-        ctx.log(
-            LogTag::Debug,
-            format!("fileserver: file on disk: {path:?}"),
-        );
+        ctx.log(LogTag::Debug, format!("fileserver: file on disk: {path:?}"));
 
         // reset the bereq lifetime, otherwise we couldn't use ctx in the line above
         // yes, it feels weird at first, but it's for our own good
@@ -238,7 +234,7 @@ fn assemble_file_path(root_path: &str, url: &str) -> PathBuf {
                 components.pop();
             }
             Normal(s) => {
-                // we can unwrap as url_path was created from an &str
+                // we can unwrap as url_path was created from a &str
                 components.push(s.to_str().unwrap());
             }
         };
