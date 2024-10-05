@@ -11,17 +11,12 @@ use std::os::unix::fs::MetadataExt;
 use chrono::DateTime;
 use chrono::offset::Utc;
 
-use varnish::vcl::ctx::Ctx;
-use varnish::vcl::backend::{Backend, Serve, Transfer, VCLBackendPtr};
+use varnish::vcl::Ctx;
+use varnish::vcl::{Backend, Serve, Transfer, VCLBackendPtr};
 
-varnish::vtc!(test01);
-varnish::vtc!(test02);
-varnish::vtc!(test03);
-varnish::vtc!(test04);
-varnish::vtc!(test05);
-varnish::vtc!(test06);
+varnish::run_vtc_tests!("tests/*.vtc");
 
-// root is the Rust implement of the VCC definition (in vmod.vcc)
+// root is the Rust implementation of the VCC definition (in vmod.vcc)
 // it only contains backend, which wraps a FileBackend, and
 // handles response body creation with a FileTransfer
 #[allow(non_camel_case_types)]
@@ -88,7 +83,7 @@ impl Serve<FileTransfer> for FileBackend<> {
 
         // combine root and url into something that's hopefully safe
         let path = assemble_file_path(&self.path, bereq_url);
-        ctx.log(varnish::vcl::ctx::LogTag::Debug, &format!("fileserver: file on disk: {:?}", path));
+        ctx.log(varnish::vcl::LogTag::Debug, &format!("fileserver: file on disk: {:?}", path));
 
         // reset the bereq lifetime, otherwise we couldn't use ctx in the line above
         // yes, it feels weird at first, but it's for our own good

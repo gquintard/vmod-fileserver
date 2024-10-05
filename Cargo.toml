@@ -5,10 +5,12 @@ edition = "2021"
 license = "BSD-3-Clause"
 
 [build-dependencies]
-varnish = "0.0.19"
+#varnish = "0.0.19"
+varnish = { path = "../varnish-rs/varnish" }
 
 [dependencies]
-varnish = "0.0.19"
+varnish = { path = "../varnish-rs/varnish" }
+varnish-sys = { path = "../varnish-rs/varnish-sys" }
 chrono = "0.4.23"
 
 [lib]
