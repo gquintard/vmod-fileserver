@@ -497,7 +497,7 @@ checksum = "e91b56cd4cadaeb79bbf1a5645f6b4f8dc5bde8834ad5894a8db35fda9efa1fe"
 [[package]]
 name = "varnish"
 version = "0.0.19"
-source = "git+https://github.com/nyurik/varnish-rs.git?branch=fixes-for-reqwest#8da59a3869efff119ed722a9012074b4ff72b849"
+source = "git+https://github.com/gquintard/varnish-rs.git?branch=feature-macro#a99d66cdb32a4da309b283ba3bccc46bfd9ddf04"
 dependencies = [
  "glob",
  "varnish-macros",
@@ -507,7 +507,7 @@ dependencies = [
 [[package]]
 name = "varnish-macros"
 version = "0.0.19"
-source = "git+https://github.com/nyurik/varnish-rs.git?branch=fixes-for-reqwest#8da59a3869efff119ed722a9012074b4ff72b849"
+source = "git+https://github.com/gquintard/varnish-rs.git?branch=feature-macro#a99d66cdb32a4da309b283ba3bccc46bfd9ddf04"
 dependencies = [
  "darling",
  "prettyplease",
@@ -522,7 +522,7 @@ dependencies = [
 [[package]]
 name = "varnish-sys"
 version = "0.0.19"
-source = "git+https://github.com/nyurik/varnish-rs.git?branch=fixes-for-reqwest#8da59a3869efff119ed722a9012074b4ff72b849"
+source = "git+https://github.com/gquintard/varnish-rs.git?branch=feature-macro#a99d66cdb32a4da309b283ba3bccc46bfd9ddf04"
 dependencies = [
  "bindgen",
  "pkg-config",
