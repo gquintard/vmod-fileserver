@@ -6,9 +6,9 @@ license = "BSD-3-Clause"
 
 [dependencies]
 chrono = "0.4.23"
-varnish = { git = "https://github.com/gquintard/varnish-rs.git", branch = "feature-macro"}
-varnish-macros = { git = "https://github.com/gquintard/varnish-rs.git", branch = "feature-macro" }
-varnish-sys = { git = "https://github.com/gquintard/varnish-rs.git", branch = "feature-macro"}
+varnish = { git = "https://github.com/gquintard/varnish-rs.git" }
+varnish-macros = { git = "https://github.com/gquintard/varnish-rs.git" }
+varnish-sys = { git = "https://github.com/gquintard/varnish-rs.git" }
 
 [lib]
 crate-type = ["cdylib"]
