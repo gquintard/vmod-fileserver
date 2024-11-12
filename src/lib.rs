@@ -18,8 +18,8 @@ run_vtc_tests!("tests/*.vtc");
 mod fileserver {
     use std::error::Error;
 
-    use varnish::vcl::{Backend, Ctx};
     use varnish::ffi::VCL_BACKEND;
+    use varnish::vcl::{Backend, Ctx};
 
     use super::root;
     use crate::{build_mime_dict, FileBackend};
