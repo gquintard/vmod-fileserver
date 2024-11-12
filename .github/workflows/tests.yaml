@@ -30,8 +30,6 @@ jobs:
       - name: Ensure this crate has not yet been published (on release)
         if: github.event_name == 'release'
         run: just check-if-published
-      - uses: Swatinem/rust-cache@v2
-        if: github.event_name != 'release' && github.event_name != 'workflow_dispatch'
       - name: install varnish-dev
         run: |
           curl -s https://packagecloud.io/install/repositories/varnishcache/${{ matrix.setup }}/script.deb.sh | sudo bash
