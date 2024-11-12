@@ -19,7 +19,7 @@ mod fileserver {
     use std::error::Error;
 
     use varnish::vcl::{Backend, Ctx};
-    use varnish_sys::ffi::VCL_BACKEND;
+    use varnish::ffi::VCL_BACKEND;
 
     use super::root;
     use crate::{build_mime_dict, FileBackend};
