@@ -10,7 +10,7 @@ use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use varnish::run_vtc_tests;
-use varnish::vcl::{Backend, Ctx, LogTag, Serve, Transfer, VclResult};
+use varnish::vcl::{Backend, Ctx, LogTag, VclResponse, VclBackend, VclResult, StrOrBytes};
 
 run_vtc_tests!("tests/*.vtc");
 
@@ -31,7 +31,7 @@ mod fileserver {
     impl root {
         pub fn new(
             ctx: &mut Ctx,
-            #[vcl_name] vcl_name: &str,
+            #[vcl_name] name: &str,
             path: &str,
             mime_db: Option<&str>,
         ) -> Result<Self, Box<dyn Error>> {
@@ -39,7 +39,7 @@ mod fileserver {
             // at worst empty)
             if path.is_empty() {
                 return Err(
-                    format!("fileserver: can't create {vcl_name} with an empty path").into(),
+                    format!("fileserver: can't create {name} with an empty path").into(),
                 );
             }
 
@@ -56,7 +56,8 @@ mod fileserver {
 
             let backend = Backend::new(
                 ctx,
-                vcl_name,
+                "fileserver",
+                name,
                 FileBackend {
                     mimes,
                     path: path.to_string(),
@@ -66,7 +67,7 @@ mod fileserver {
             Ok(root { backend })
         }
 
-        pub fn backend(&self, _ctx: &Ctx) -> VCL_BACKEND {
+        pub unsafe fn backend(&self, _ctx: &Ctx) -> VCL_BACKEND {
             self.backend.vcl_ptr()
         }
     }
@@ -85,15 +86,19 @@ struct FileBackend {
     mimes: Option<HashMap<String, String>>, // a hashmap linking extensions to maps (optional)
 }
 
-impl Serve<FileTransfer> for FileBackend {
-    fn get_type(&self) -> &str {
-        "fileserver"
+// silly helper until varnish-rs provides something more ergonomic
+fn sob_helper(sob: StrOrBytes) -> &str {
+    match sob {
+        StrOrBytes::Bytes(_) => panic!("{:?} isn't a string", sob),
+        StrOrBytes::Utf8(s) => s,
     }
+}
 
-    fn get_headers(&self, ctx: &mut Ctx) -> VclResult<Option<FileTransfer>> {
+impl VclBackend<FileTransfer> for FileBackend {
+    fn get_response(&self, ctx: &mut Ctx) -> VclResult<Option<FileTransfer>> {
         // we know that bereq and bereq_url, so we can just unwrap the options
         let bereq = ctx.http_bereq.as_ref().unwrap();
-        let bereq_url = bereq.url().unwrap();
+        let bereq_url = sob_helper(bereq.url().unwrap());
 
         // combine root and url into something that's hopefully safe
         let path = assemble_file_path(&self.path, bereq_url);
@@ -115,11 +120,11 @@ impl Serve<FileTransfer> for FileBackend {
 
         // can we avoid sending a body?
         let mut is_304 = false;
-        if let Some(inm) = bereq.header("if-none-match") {
+        if let Some(inm) = bereq.header("if-none-match").map(sob_helper) {
             if inm == etag || (inm.starts_with("W/") && inm[2..] == etag) {
                 is_304 = true;
             }
-        } else if let Some(ims) = bereq.header("if-modified-since") {
+        } else if let Some(ims) = bereq.header("if-modified-since").map(sob_helper) {
             if let Ok(t) = DateTime::parse_from_rfc2822(ims) {
                 if t > modified {
                     is_304 = true;
@@ -129,7 +134,8 @@ impl Serve<FileTransfer> for FileBackend {
 
         beresp.set_proto("HTTP/1.1")?;
         let mut transfer = None;
-        if bereq.method() != Some("HEAD") && bereq.method() != Some("GET") {
+        let method = bereq.method().map(sob_helper);
+        if method != Some("HEAD") && method != Some("GET") {
             // we are fairly strict in what method we accept
             beresp.set_status(405);
             return Ok(None);
@@ -141,7 +147,7 @@ impl Serve<FileTransfer> for FileBackend {
             // it's a GET we need to add the VFP to the pipeline
             // and add a BackendResp to the priv1 field
             beresp.set_status(200);
-            if bereq.method() == Some("GET") {
+            if method == Some("GET") {
                 transfer = Some(FileTransfer {
                     // prevent reading more than expected
                     reader: BufReader::new(f).take(cl),
@@ -175,7 +181,7 @@ struct FileTransfer {
     reader: Take<BufReader<File>>,
 }
 
-impl Transfer for FileTransfer {
+impl VclResponse for FileTransfer {
     fn read(&mut self, buf: &mut [u8]) -> VclResult<usize> {
         self.reader.read(buf).map_err(|e| e.to_string().into())
     }
