@@ -10,7 +10,7 @@ use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use varnish::run_vtc_tests;
-use varnish::vcl::{Backend, Ctx, LogTag, VclResponse, VclBackend, VclResult, StrOrBytes};
+use varnish::vcl::{Backend, Ctx, LogTag, StrOrBytes, VclBackend, VclResponse, VclResult};
 
 run_vtc_tests!("tests/*.vtc");
 
@@ -38,9 +38,7 @@ mod fileserver {
             // sanity check (note that we don't have null pointers, so path is
             // at worst empty)
             if path.is_empty() {
-                return Err(
-                    format!("fileserver: can't create {name} with an empty path").into(),
-                );
+                return Err(format!("fileserver: can't create {name} with an empty path").into());
             }
 
             // store the mime database in memory, possibly
