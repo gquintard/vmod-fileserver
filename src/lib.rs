@@ -184,7 +184,7 @@ impl VclResponse for FileTransfer {
         self.reader.read(buf).map_err(|e| e.to_string().into())
     }
     fn len(&self) -> Option<usize> {
-        Some(usize::try_from(self.reader.limit()).unwrap())
+        Some(usize::try_from(self.reader.limit()).expect("casting u64 to usize"))
     }
 }
 
