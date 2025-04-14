@@ -85,9 +85,10 @@ struct FileBackend {
 }
 
 // silly helper until varnish-rs provides something more ergonomic
+#[expect(clippy::needless_pass_by_value)]
 fn sob_helper(sob: StrOrBytes) -> &str {
     match sob {
-        StrOrBytes::Bytes(_) => panic!("{:?} isn't a string", sob),
+        StrOrBytes::Bytes(_) => panic!("{sob:?} isn't a string"),
         StrOrBytes::Utf8(s) => s,
     }
 }
@@ -165,9 +166,8 @@ impl VclBackend<FileTransfer> for FileBackend {
         if cl > 0 {
             // we need both and extension and a mime database
             if let (Some(ext), Some(h)) = (path.extension(), self.mimes.as_ref()) {
-                let ct = h.get(&ext.to_string_lossy() as &str);
-                if ct.is_some() {
-                    beresp.set_header("content-type", &ct.as_ref().unwrap().to_string())?;
+                if let Some(ct) = h.get(ext.to_string_lossy().as_ref()) {
+                    beresp.set_header("content-type", ct)?;
                 }
             }
         }
@@ -184,7 +184,7 @@ impl VclResponse for FileTransfer {
         self.reader.read(buf).map_err(|e| e.to_string().into())
     }
     fn len(&self) -> Option<usize> {
-        Some(self.reader.limit() as usize)
+        Some(usize::try_from(self.reader.limit()).expect("casting u64 to usize"))
     }
 }
 
@@ -229,7 +229,7 @@ fn assemble_file_path(root_path: &str, url: &str) -> PathBuf {
     let mut components = Vec::new();
 
     for c in url_path.components() {
-        use std::path::Component::*;
+        use std::path::Component::{CurDir, Normal, ParentDir, Prefix, RootDir};
         match c {
             Prefix(_) => unreachable!(),
             RootDir => {}
@@ -241,7 +241,7 @@ fn assemble_file_path(root_path: &str, url: &str) -> PathBuf {
                 // we can unwrap as url_path was created from a &str
                 components.push(s.to_str().unwrap());
             }
-        };
+        }
     }
 
     let mut complete_path = String::from(root_path);
