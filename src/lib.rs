@@ -101,7 +101,10 @@ impl VclBackend<FileTransfer> for FileBackend {
 
         // combine root and url into something that's hopefully safe
         let path = assemble_file_path(&self.path, bereq_url);
-        ctx.log(LogTag::Debug, format!("fileserver: file on disk: {path:?}"));
+        ctx.log(
+            LogTag::Debug,
+            format!("fileserver: file on disk: {}", path.display()),
+        );
 
         // reset the bereq lifetime, otherwise we couldn't use ctx in the line above
         // yes, it feels weird at first, but it's for our own good
