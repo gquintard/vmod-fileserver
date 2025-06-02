@@ -1,12 +1,12 @@
 [package]
 name = "vmod_fileserver"
-version = "0.0.8"
+version = "0.0.9"
 edition = "2021"
 license = "BSD-3-Clause"
 
 [dependencies]
 chrono = "0.4.23"
-varnish = { version = "0.4.0", features = ["ffi"] }
+varnish = { version = "0.5.0", features = ["ffi"] }
 
 [lib]
 crate-type = ["cdylib"]
