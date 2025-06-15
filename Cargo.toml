@@ -3,6 +3,7 @@ name = "vmod_fileserver"
 version = "0.0.9"
 edition = "2021"
 license = "BSD-3-Clause"
+publish = false
 
 [dependencies]
 chrono = "0.4.23"
